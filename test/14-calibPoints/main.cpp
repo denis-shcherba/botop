@@ -82,7 +82,7 @@ void collectData(){
         Move_IK move(bot, C, false);
         move().add_collision();
         move().addObjective({}, FS_positionRel, {dot->name, cam->name}, OT_eq, {1e0}, dotPos);
-        move().addObjective({}, FS_positionRel, {"l_gripper", dot->name}, OT_ineq, {{1,3},{0.,0.,-1.}}, {0.,0.,.1});
+        move().addObjective({}, FS_positionRel, {"l_gripper", dot->name}, OT_ineq, {{1,3},{0.,0.,-1.}}, {0.,0.,.4});
         move().addObjective({}, FS_positionRel, {"l_gripper", dot->name}, OT_eq, {{2,3},{1.,0.,0.,0.,1.,0.}}, {});
         move().addObjective({}, FS_qItself, {mount->name}, OT_eq, {1e0}, {wristAngle});
         if(!move.go()){
@@ -119,7 +119,7 @@ void selectHSV(){
   rai::Configuration C;
   C.addFile("station.g");
   rai::Frame* cam = C["cameraWrist"];
-  BotOp bot(C, rai::getParameter<bool>("real"));
+  BotOp bot(C, rai::getParameter<bool>("real", false));
 
   arr hsvFilter = rai::getParameter<arr>("hsvFilter");
 
@@ -131,6 +131,41 @@ void selectHSV(){
     bot.getImageAndDepth(img, depth, cam->name);
     hsvFilter = gui.getHSV();
     arr u = getHsvBlobImageCoords(img, depth, hsvFilter);
+
+    if(u.N) {
+    std::cout << "Found marker at (x, y, depth): " << u << std::endl;
+    } else {
+      std::cout << "Marker not found." << std::endl;
+  }
+    disp.watchImage(img, false);
+    bot.sync(C);
+    if(bot.getKeyPressed()=='q') break;
+  }
+
+  cout <<"SELECTED:" <<hsvFilter <<endl;
+}
+
+void testArUco(){
+  rai::Configuration C;
+  C.addFile("station.g");
+  rai::Frame* cam = C["cameraWrist"];
+  BotOp bot(C, rai::getParameter<bool>("real", false));
+
+  arr hsvFilter = rai::getParameter<arr>("hsvFilter");
+
+  CameraCalibrationHSVGui gui;
+  OpenGL disp;
+  byteA img;
+  floatA depth;
+  for(;;){
+    bot.getImageAndDepth(img, depth, cam->name);
+    arr u = getArucoMarkerImageCoords(img, depth, 1, 0);
+
+    if(u.N) {
+    std::cout << "Found marker at (x, y, depth): " << u << std::endl;
+    } else {
+      std::cout << "Marker not found." << std::endl;
+  }
     disp.watchImage(img, false);
     bot.sync(C);
     if(bot.getKeyPressed()=='q') break;
@@ -152,8 +187,21 @@ void computeCalibration(){
   arr histogram;
 
   OpenGL disp;
+  int i = -1;
   for(rai::Node *n:data){
+    ++i;
     LOG(0) <<"===========" <<n->key;
+    LOG(0) << i;
+    int id = 0;
+
+
+    if ((i/10)==0)
+      id = 2;
+    else if((i/10)==1)
+      id = 3;
+    else 
+      id = 1;
+
     rai::Graph& dat = n->graph();
 
     //get stuff
@@ -167,7 +215,9 @@ void computeCalibration(){
     if(img.d0 != depth.d0) continue;
 
     // blob image coordinates
-    arr u = getHsvBlobImageCoords(img, depth, hsvFilter, 0, histogram);
+    // arr u = getHsvBlobImageCoords(img, depth, hsvFilter, 0, histogram);
+    arr u = getArucoMarkerImageCoords(img, depth, id, 1);
+
     if(!u.N){ rai::wait(); continue; }
 
     // blob homogeneous coordinates
@@ -188,11 +238,12 @@ void computeCalibration(){
      <<"\ncalib err:     " <<x-xCam <<endl;
 
     disp.watchImage(img, checks>1, 1.);
-
     //collect data
     U.append(uHom);
     x.append(1.); //works equally with or without appending 1...
     X.append(x);
+    
+
   }
   X.reshape(U.d0, -1);
 
@@ -226,10 +277,11 @@ void computeCalibration(){
   cout <<"*** camera world pos: " <<T.pos <<endl;
   cout <<"*** camera world rot: " <<T.rot <<endl;
 
-  FILE("z.hsv") <<(~histogram).modRaw() <<endl;
-  gnuplot("set title 'HSV histogram'; plot 'z.hsv' us 0:1 t 'H', '' us 0:2 t 'S', '' us 0:3 t 'V'");
+  // FILE("z.hsv") <<(~histogram).modRaw() <<endl;
+  // gnuplot("set title 'HSV histogram'; plot 'z.hsv' us 0:1 t 'H', '' us 0:2 t 'S', '' us 0:3 t 'V'");
   rai::wait();
 }
+ 
 
 //===========================================================================
 
@@ -279,7 +331,7 @@ void komoCalibrate(){
 
   //setup KOMO, one slice for each datapoint
   KOMO komo(C, data.N, 1, 0, false);
-  komo.setupPathConfig();
+  //komo.setupPathConfig();
   komo.addQuaternionNorms();
 
   //add objectives for each data point
@@ -296,6 +348,7 @@ void komoCalibrate(){
     }else{
       komo.setConfiguration_qOrg(t, q);
     }
+
 
     //set the viewPoint
     byteA img(dat.get<byteA>("img"));
@@ -391,12 +444,12 @@ void demoCalibration(){
     {
       Move_IK move(bot, C, checks);
       move().addObjective({}, FS_positionRel, {dot->name, cam->name}, OT_eq, {1e0}, {0.,0.,.25});
-      if(!move.go()) return;
+      if(!move.go()) return;    
     }
 
     //fine motion
     bot.gripperMove(rai::_left, 0);
-#if 1
+#if 0
     for(uint t=0;t<5;t++) bot.sync(C);
     if(!sense_HsvBlob(bot, C, cam->name, "target", hsvFilter, Pinv, checks)) return;
 //    target->setRelativePosition(dot->getRelativePosition());
@@ -404,7 +457,7 @@ void demoCalibration(){
     {
       Move_IK move(bot, C, checks);
       move().addObjective({}, FS_vectorZ, {"l_gripper"}, OT_eq, {1e0}, {0.,0.,1.});
-      move().addObjective({}, FS_positionDiff, {"l_gripper", "target" /*dot->name*/}, OT_eq, {1e0}, {0.,0., .01});
+      move().addObjective({}, FS_positionDiff, {"l_gripper", dot->name /*target*/}, OT_eq, {1e0}, {0.,0., .016});
       if(!move.go()) return;
     }
 
@@ -415,7 +468,7 @@ void demoCalibration(){
   bot.gripperMove(rai::_left);
   bot.home(C);
 }
-
+ 
 //===========================================================================
 
 void checkTip(){
@@ -428,7 +481,7 @@ void checkTip(){
   rai::Frame* tip = C["l_gripper"];
 
   //pre motion
-  bot.gripperClose(rai::_left);
+  bot.gripperMove(rai::_left, 0);
   bot.hold(true, false);
   for(;;){
     bot.sync(C, .1);
@@ -442,21 +495,40 @@ void checkTip(){
 
 }
 
+void testPanda(){
+  //-- setup a configuration
+  rai::Configuration C;
+  C.addFile(rai::raiPath("../rai-robotModels/scenarios/pandaSingle.g"));
+  if(rai::checkParameter<arr>("finalQ")){
+    rai::Transformation Q = rai::getParameter<arr>("finalQ");
+    Q.rot.normalize();
+    rai::Frame* cam = C["cameraWrist"];
+    cam->setRelativePose(Q);
+  }
+  C.addFrame("cameraWaypoint", "cameraWrist")->setShape(rai::ST_marker, {.3});
+  C.view(true);
+}
+
+
 //===========================================================================
 
 int main(int argc, char * argv[]){
   rai::initCmdLine(argc, argv);
 
-//  collectData();
+  // collectData();
+ 
+  // computeCalibration();
+  
+  // testPanda();
+  // komoCalibrate();
 
-  computeCalibration();
-//  komoCalibrate();
+  // selectHSV();
 
-//  selectHSV();
+  // testArUco();
 
-//  demoCalibration();
+  demoCalibration();
 
-//  checkTip();
+  // checkTip();
 
   LOG(0) <<" === bye bye ===\n";
 

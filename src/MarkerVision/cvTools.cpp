@@ -134,6 +134,55 @@ arr getHsvBlobImageCoords(byteA& _rgb, floatA& _depth, const arr& hsvFilter, int
   return blobPosition;
 }
 
+
+arr getArucoMarkerImageCoords(byteA& _rgb, floatA& _depth, int targetId, int verbose) {
+  cv::Mat rgb = CV(_rgb);
+  cv::Mat depth = CV(_depth);
+
+  cv::cvtColor(rgb, rgb, cv::COLOR_RGB2BGR);
+
+  auto dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
+  std::vector<int> ids;
+  std::vector<std::vector<cv::Point2f>> corners;
+
+  cv::aruco::detectMarkers(rgb, dictionary, corners, ids);
+
+  for (size_t i = 0; i < ids.size(); i++) {
+    if (ids[i] == targetId) {
+      std::vector<cv::Point> contour;
+      for (const auto& pt : corners[i]) {
+        contour.push_back(pt);
+      }
+      cv::polylines(rgb, contour, true, cv::Scalar(0, 0, 255), 2);  // red, closed, thickness=2
+
+      cv::Point2f center(0, 0);
+      for (const auto& pt : corners[i]) {
+        center += pt;
+      }
+      center *= (1.0 / 4.0);
+
+      float depthVal = depth.at<float>(int(center.y), int(center.x));
+      if (depthVal > 0.1 && depthVal < 1.0) {
+        if (verbose > 0 && rgb.total() > 0) {
+          cv::imshow("aruco", rgb);
+          cv::waitKey(1);
+        }
+        return arr{double(center.x), double(center.y), double(depthVal)};
+      }
+    }
+  }
+
+  if (verbose > 0 && rgb.total() > 0) {
+    cv::aruco::drawDetectedMarkers(rgb, corners, ids);
+    cv::imshow("aruco", rgb);
+    cv::waitKey(1);
+    LOG(0) << "Marker not found or invalid depth";
+  }
+
+  return {};
+}
+
+
 //===========================================================================
 
 const char* CameraCalibrationHSVGui::window_detection_name = "HSV Filter Selection";
@@ -191,6 +240,7 @@ arr CameraCalibrationHSVGui::getHSV() {
 #else
 
 arr getHsvBlobImageCoords(byteA& _rgb, floatA& _depth, const arr& hsvFilter, int verbose, arr& histograms){ NICO }
+arr getArucoMarkerImageCoords(byteA& _rgb, floatA& _depth, int targetId, int verbose) { NICO }
 void CameraCalibrationHSVGui::on_low_H_thresh_trackbar(int, void* self) { NICO }
 void CameraCalibrationHSVGui::on_high_H_thresh_trackbar(int, void* self) { NICO }
 void CameraCalibrationHSVGui::on_low_S_thresh_trackbar(int, void* self) { NICO }

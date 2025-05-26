@@ -5,6 +5,7 @@ void makeHomogeneousImageCoordinate(arr& u);
 void decomposeInvProjectionMatrix(arr& K, arr& R, arr& t, const arr& P);
 
 arr getHsvBlobImageCoords(byteA& _rgb, floatA& _depth, const arr& hsvFilter, int verbose=0, arr& histograms=NoArr);
+arr getArucoMarkerImageCoords(byteA& _rgb, floatA& _depth, int targetId, int verbose);
 
 struct CameraCalibrationHSVGui {
   static const char* window_detection_name;
