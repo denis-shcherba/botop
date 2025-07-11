@@ -15,6 +15,15 @@
 
 //===========================================================================
 
+const float aruco_dim = .1;
+const float gripper_length = .03;
+const float gripper_width = .018;
+const float offset_x = (.5 * aruco_dim - .5 * gripper_length);
+const float offset_y = .5 * aruco_dim - .5 * gripper_width;
+const arr offset_1 = {0.0301838, 0.0446647, 0};
+const arr offset_2 = {-0.0296676, 0.0450092, 0};
+const arr offset_3 = {-0.0537112, -0.00459404 , 0};
+
 void setupConfig(rai::Configuration& C){
   C.addFile(rai::raiPath("../rai-robotModels/scenarios/pandaSingle.g"));
 
@@ -83,7 +92,8 @@ void collectData(){
         move().add_collision();
         move().addObjective({}, FS_positionRel, {dot->name, cam->name}, OT_eq, {1e0}, dotPos);
         move().addObjective({}, FS_positionRel, {"l_gripper", dot->name}, OT_ineq, {{1,3},{0.,0.,-1.}}, {0.,0.,.4});
-        move().addObjective({}, FS_positionRel, {"l_gripper", dot->name}, OT_eq, {{2,3},{1.,0.,0.,0.,1.,0.}}, {});
+        // offset x
+        move().addObjective({}, FS_positionRel, {"l_gripper", dot->name}, OT_eq, {{2,3},{1.,0.,0.,0.,1.,0.}});
         move().addObjective({}, FS_qItself, {mount->name}, OT_eq, {1e0}, {wristAngle});
         if(!move.go()){
           k--;
@@ -94,6 +104,7 @@ void collectData(){
 
       for(uint t=0;t<3;t++){ bot.sync(C); rai::wait(.1); }
 
+      arr offset = {};
       rai::Graph& dat = data.addSubgraph(STRING(dot->name<<k));
       bot.getImageAndDepth(img, depth, cam->name);
       dat.add("dot", dot->ID);
@@ -101,7 +112,14 @@ void collectData(){
       dat.add("mountPose", mount->getPose());
       dat.add("camPose", cam->getPose());
       dat.add("camFxycxy", bot.getCameraFxycxy(cam->name));
-      dat.add("dotPosition", dot->getPosition());
+      if(d==0)
+        dat.add("dotPosition", dot->getPosition()+offset_1);
+      else if (d==1)
+        dat.add("dotPosition", dot->getPosition()+offset_2);
+      else if (d==2)
+        dat.add("dotPosition", dot->getPosition()+offset_3);
+      else
+        cout << "EEEEEEEEEEEEEEEEEEEEERRRROOOOOOOOOOOOOOOOR";
       dat.add("img", img);
       dat.add("depth", depth);
       imgGl.watchImage(img, false);
@@ -196,11 +214,11 @@ void computeCalibration(){
 
 
     if ((i/10)==0)
-      id = 2;
-    else if((i/10)==1)
-      id = 3;
-    else 
       id = 1;
+    else if((i/10)==1)
+      id = 2;
+    else 
+      id = 3;
 
     rai::Graph& dat = n->graph();
 
@@ -213,6 +231,7 @@ void computeCalibration(){
     arr fxycxy = dat.get<arr>("camFxycxy");
 
     if(img.d0 != depth.d0) continue;
+
 
     // blob image coordinates
     // arr u = getHsvBlobImageCoords(img, depth, hsvFilter, 0, histogram);
@@ -457,11 +476,16 @@ void demoCalibration(){
     {
       Move_IK move(bot, C, checks);
       move().addObjective({}, FS_vectorZ, {"l_gripper"}, OT_eq, {1e0}, {0.,0.,1.});
-      move().addObjective({}, FS_positionDiff, {"l_gripper", dot->name /*target*/}, OT_eq, {1e0}, {0.,0., .016});
+      // 1.8cm finger height
+      move().addObjective({}, FS_positionDiff, {"l_gripper", dot->name /*target*/}, OT_eq, {1e0}, {0.,0., .012});
       if(!move.go()) return;
     }
 
     bot.wait(C, true, false);
+    float angle = acos(C.eval(FS_scalarProductXX, {"l_gripper", "table"}).elem(0));
+    cout << "offset x=" <<cos(angle)*offset_x-sin(angle)*offset_y<<endl;
+    cout << "offset y=" <<sin(angle)*offset_x+cos(angle)*offset_y<<endl;
+
     if(bot.keypressed=='q') break;
   }
 
@@ -515,18 +539,19 @@ void testPanda(){
 int main(int argc, char * argv[]){
   rai::initCmdLine(argc, argv);
 
-  // collectData();
+  collectData();
  
   // computeCalibration();
   
   // testPanda();
+
   // komoCalibrate();
 
   // selectHSV();
 
   // testArUco();
 
-  demoCalibration();
+  // demoCalibration();
 
   // checkTip();
 
